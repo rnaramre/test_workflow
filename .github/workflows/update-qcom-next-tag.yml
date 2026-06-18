@@ -1,0 +1,139 @@
+name: Update QCOM Next Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_tag:
+        description: "New qcom-next tag"
+        required: true
+        type: string
+
+env:
+  TARGET_REPO: qualcomm-linux/qcom-deb-images
+  TARGET_REPO_NAME: qcom-deb-images
+  BRANCH_NAME: qcom-next-tag-update
+
+jobs:
+  update-tag:
+    runs-on:
+      - self-hosted
+      - Linux
+      - ARM64
+
+    steps:
+      - name: Get authenticated user
+        id: user
+        run: |
+          echo "username=$(gh api user --jq .login)" >> $GITHUB_OUTPUT
+
+      - name: Check if fork exists
+        id: fork
+        run: |
+            if gh repo view "${{ steps.user.outputs.username }}/$TARGET_REPO_NAME" >/dev/null 2>&1; then
+              echo "exists=true" >> $GITHUB_OUTPUT
+            else
+              echo "exists=false" >> $GITHUB_OUTPUT
+            fi
+
+
+      - name: Create fork if not exists
+        if: steps.fork.outputs.exists == 'false'
+        run: |
+          gh repo fork "$TARGET_REPO" --clone=false || true
+
+
+      - name: Sync existing fork
+        if: steps.fork.outputs.exists == 'true'
+        run: |
+           gh repo sync "${{ steps.user.outputs.username }}/$TARGET_REPO_NAME" --source "$TARGET_REPO"
+
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.user.outputs.username }}/${{ env.TARGET_REPO_NAME }}
+          token: ${{ secrets.GH_PAT }}
+          persist-credentials: true
+          path: repo
+
+      - name: Create qcom-next-tag-update branch
+        run: |
+          cd repo
+          git fetch origin
+          
+          if git ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+            echo "Branch exists, reusing it"
+
+            git checkout "$BRANCH_NAME"
+            git pull origin "$BRANCH_NAME"
+          else
+            echo "Creating new branch"
+
+            git checkout -b $BRANCH_NAME
+          fi
+
+      - name: Update qcom-next tag
+        run: |
+          cd repo
+
+          NEW_TAG="${{ inputs.new_tag }}"
+
+          for file in \
+            .github/workflows/linux-daily-glymur.yml \
+            .github/workflows/linux-daily-qcom-next.yml
+          do
+            sed -i -E "s/(--ref )qcom-next-[^ ]+/\1${NEW_TAG}/" "$file"
+          done
+
+
+      - name: Verify file updates
+        id: verify
+        run: |
+          cd repo
+
+          if grep -q -- "${{ inputs.new_tag }}" .github/workflows/linux-daily-glymur.yml &&
+             grep -q -- "${{ inputs.new_tag }}" .github/workflows/linux-daily-qcom-next.yml; then
+
+             echo "changed=true" >> $GITHUB_OUTPUT
+             echo "Files updated successfully"
+          else
+             echo "changed=false" >> $GITHUB_OUTPUT
+             echo "Files were not updated"
+          fi
+
+      - name: Extract kernel version
+        if: steps.verify.outputs.changed == 'true'
+        id: kernel
+        run: |
+          KERNEL_VERSION=$(echo "${{ inputs.new_tag }}" | sed -E 's/qcom-next-([0-9]+\.[0-9]+-rc[0-9]+)-.*/v\1/')
+          echo "version=$KERNEL_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Commit changes
+        if: steps.verify.outputs.changed == 'true'
+        run: |
+          cd repo
+          git diff
+
+          git add \
+           .github/workflows/linux-daily-glymur.yml \
+           .github/workflows/linux-daily-qcom-next.yml
+
+
+          git commit -s \
+            -m "feat(qcom-next): update to tag ${{ inputs.new_tag }}" \
+            -m "Move to the latest linux-qcom-next release tag ${{ inputs.new_tag }},
+          which corresponds to kernel version ${{ steps.kernel.outputs.version }}."
+
+      - name: Push branch
+        run: |
+          cd repo
+          git push origin $BRANCH_NAME
+
+      - name: Create Pull Request
+        if: steps.verify.outputs.changed == 'true'
+        run: |
+          gh pr create \
+            --repo ${{ env.TARGET_REPO }} \
+            --head ${{ steps.user.outputs.username }}:$BRANCH_NAME \
+            --base main \
+            --title "feat(qcom-next): update to tag ${{ inputs.new_tag }}" \
+            --body "Move to the latest linux-qcom-next release tag ${{ inputs.new_tag }}, which corresponds to kernel version ${{ steps.kernel.outputs.version }}."
