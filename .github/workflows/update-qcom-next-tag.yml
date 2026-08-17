@@ -116,8 +116,9 @@ jobs:
 
           git commit -s \
             -m "feat(qcom-next): update to tag ${{ inputs.new_tag }}" \
-            -m "Move to the latest linux-qcom-next release tag ${{ inputs.new_tag }},
-          which corresponds to kernel version ${{ steps.kernel.outputs.version }}."
+            -m "Move to the latest linux-qcom-next release tag
+          ${{ inputs.new_tag }}, which corresponds to kernel version
+          ${{ steps.kernel.outputs.version }}."
 
       - name: Push branch
         run: |
