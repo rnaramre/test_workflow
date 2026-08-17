@@ -78,7 +78,7 @@ jobs:
           NEW_TAG="${{ inputs.new_tag }}"
 
           for file in \
-            .github/workflows/linux-daily-qcom-next.yml
+            .github/workflows/linux-qcom-next.yml
           do
             sed -i -E "s/(--ref )qcom-next-[^ ]+/\1${NEW_TAG}/" "$file"
           done
@@ -89,7 +89,7 @@ jobs:
         run: |
           cd repo
 
-          if grep -q -- "${{ inputs.new_tag }}" .github/workflows/linux-daily-qcom-next.yml; then
+          if grep -q -- "${{ inputs.new_tag }}" .github/workflows/linux-qcom-next.yml; then
              echo "changed=true" >> $GITHUB_OUTPUT
              echo "Files updated successfully"
           else
@@ -111,7 +111,7 @@ jobs:
           git diff
 
           git add \
-           .github/workflows/linux-daily-qcom-next.yml
+           .github/workflows/linux-qcom-next.yml
 
 
           git commit -s \
